@@ -4,33 +4,48 @@ from rembg import remove
 from rembg.bg import new_session
 from PIL import Image
 import io
+from typing import Optional
 
 class SharpestCutout:
-    def __init__(self, image_path):
+    def __init__(self, image_path: str, model_name: str = "u2net", alpha_matting: bool = False):
         self.image_path = image_path
-        self.session = new_session("u2net")  # en güçlü model
+        self.model_name = model_name
+        self.alpha_matting = alpha_matting
+        self.session = new_session(self.model_name)
+        self.fg: Optional[np.ndarray] = None
+        self._load_and_remove_background()
 
+    def _load_image_bytes(self) -> bytes:
         with open(self.image_path, "rb") as f:
-            input_image = f.read()
+            return f.read()
 
-        # EN ÖNEMLİ AYAR BURADA:
-        # alpha_matting=False => blur yok, kenarlar sert
-        output = remove(
-            input_image,
-            session=self.session,
-            alpha_matting=False
-        )
+    def _remove_background(self, image_bytes: bytes) -> bytes:
+        return remove(image_bytes, session=self.session, alpha_matting=self.alpha_matting)
 
-        # Görseli RGBA olarak aç
-        pil_image = Image.open(io.BytesIO(output)).convert("RGBA")
-        self.fg = np.array(pil_image)
-        self.fg = cv2.cvtColor(self.fg, cv2.COLOR_RGBA2BGRA)
+    def _convert_to_numpy(self, image_bytes: bytes) -> np.ndarray:
+        pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+        np_image = np.array(pil_image)
+        np_image = cv2.cvtColor(np_image, cv2.COLOR_RGBA2BGRA)
+        return np_image
 
-    def show(self):
-        cv2.imshow("Sert Kenarlı Arka Plan Kaldırma", self.fg)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    def _load_and_remove_background(self) -> None:
+        image_bytes = self._load_image_bytes()
+        output_bytes = self._remove_background(image_bytes)
+        self.fg = self._convert_to_numpy(output_bytes)
 
-# Kullanım:
-remover = SharpestCutout("ChatGPT Image Jul 29, 2025 at 11_14_15 PM.png")
-remover.show()
+    def show(self, window_name: str = "Sharpest Cutout") -> None:
+        if self.fg is not None:
+            cv2.imshow(window_name, self.fg)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+    def save(self, save_path: str) -> None:
+        if self.fg is not None:
+            cv2.imwrite(save_path, self.fg)
+
+if __name__ == "__main__":
+    IMAGE_PATH = "ChatGPT Image Jul 29, 2025 at 11_14_15 PM.png"
+    OUTPUT_PATH = "cutout_output.png"
+    remover = SharpestCutout(IMAGE_PATH)
+    remover.show()
+    remover.save(OUTPUT_PATH)
